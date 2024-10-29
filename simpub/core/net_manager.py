@@ -1,8 +1,7 @@
 import enum
-from typing import List, Dict
+from typing import List, Dict, Optional
 from typing import NewType, Callable, TypedDict, Union
 import asyncio
-from asyncio import sleep as asycnc_sleep
 import threading
 import zmq
 import zmq.asyncio
@@ -101,12 +100,15 @@ class Streamer(Publisher):
         while self.running:
             diff = time.monotonic() - last
             if diff < self.dt:
-                await asycnc_sleep(self.dt - diff)
+                await asyncio.sleep(self.dt - diff)
             last = time.monotonic()
-            msg = {
-                "updateData": self.update_func(),
-                "time": last,
-            }
+            try:
+                msg = {
+                    "updateData": self.update_func(),
+                    "time": last,
+                }
+            except Exception as e:
+                print(e)
             await self.socket.send_string(f"{self.topic}:{dumps(msg)}")
 
 
@@ -165,6 +167,7 @@ class NetManager:
     def __init__(
         self,
         host_ip: IPAddress = "127.0.0.1",
+        broadcast: Optional[str] = None,
         host_name: str = "SimPub"
     ) -> None:
         NetManager.manager = self
@@ -190,6 +193,7 @@ class NetManager:
         # setting up thread pool
         self.running: bool = True
         self.loop: asyncio.AbstractEventLoop = None
+        self.broadcast = broadcast
         self.start_server_thread()
 
     def start_server_thread(self) -> None:
@@ -240,7 +244,7 @@ class NetManager:
 
     async def service_loop(self):
         # try:
-        logger.info("The service is running...")
+        logger.info(f"The service is running on {self.local_info['ip']}")
         while self.running:
             message = await self.service_socket.recv_string()
             if ":" not in message:
@@ -259,27 +263,29 @@ class NetManager:
                     await self.service_socket.send_string("Timeout")
                 except Exception as e:
                     logger.error(f"Error: {e}")
-            await asycnc_sleep(0.01)
+            await asyncio.sleep(0.01)
 
     async def broadcast_loop(self):
         logger.info("The server is broadcasting...")
         # set up udp socket
         _socket = socket.socket(AF_INET, SOCK_DGRAM)
         _socket.setsockopt(SOL_SOCKET, SO_BROADCAST, 1)
+        
         _id = str(uuid.uuid4())
         # calculate broadcast ip
         local_info = self.local_info
         ip_bin = struct.unpack('!I', socket.inet_aton(local_info["ip"]))[0]
         netmask_bin = struct.unpack('!I', socket.inet_aton("255.255.255.0"))[0]
         broadcast_bin = ip_bin | ~netmask_bin & 0xFFFFFFFF
-        broadcast_ip = socket.inet_ntoa(struct.pack('!I', broadcast_bin))
+        broadcast_ip = self.broadcast or socket.inet_ntoa(struct.pack('!I', broadcast_bin))
+        logger.info(f"Broadcasting on {broadcast_ip}:{ServerPort.DISCOVERY.value}")
         while self.running:
             local_info = self.local_info  # update local info
             msg = f"SimPub:{_id}:{json.dumps(local_info)}"
             _socket.sendto(
                 msg.encode(), (broadcast_ip, ServerPort.DISCOVERY.value)
             )
-            await asycnc_sleep(0.1)
+            await asyncio.sleep(0.1)
         logger.info("Broadcasting has been stopped")
 
     def register_client_callback(self, msg: str) -> str:
@@ -310,7 +316,7 @@ class NetManager:
         logger.info("Server has been shut down")
 
 
-def init_net_manager(host: str) -> NetManager:
+def init_net_manager(host: str, broadcast : Optional[str]) -> NetManager:
     if NetManager.manager is not None:
         return NetManager.manager
-    return NetManager(host)
+    return NetManager(host, broadcast)
