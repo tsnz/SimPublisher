@@ -1,12 +1,14 @@
 from __future__ import annotations
+from functools import lru_cache
 from xml.etree.ElementTree import Element as XMLNode
 import xml.etree.ElementTree as ET
 import copy
 import os
 from os.path import join as pjoin
-from typing import List, Dict
+from typing import List, Dict, Optional
 from pathlib import Path
-from simpub.parser.mjcf.asset_loader import MeshLoader, TextureLoader
+import numpy as np
+from simpub.parser.mjcf.asset_loader import AssetLoader, AssetRequest, MeshLoader, TextureLoader
 from simpub.simdata import SimObject, SimScene
 from simpub.simdata import SimMaterial, SimTransform
 from simpub.simdata import SimVisual
@@ -56,34 +58,48 @@ class MJCFParser:
         self,
         file_path: str,
     ):
-        self._xml_path = os.path.abspath(file_path)
-        self._path = os.path.abspath(os.path.join(self._xml_path, ".."))
+        
+        self._xml_path = os.path.abspath(file_path) if file_path else None
+        self._path = os.path.abspath(os.path.join(self._xml_path, "..")) if file_path else None
+        self.visual_groups = set()
+        self.no_rendered_objects = set()
 
     def parse(
         self,
         no_rendered_objects: List[str] = None,
     ) -> MJCFScene:
-        if no_rendered_objects is None:
-            no_rendered_objects = []
-        self.no_rendered_objects = no_rendered_objects
-        raw_xml = self.get_root_from_xml_file(self._xml_path)
-        return self._parse_xml(raw_xml)
+        
+        if no_rendered_objects is not None:
+            self.no_rendered_objects = no_rendered_objects
 
-    def get_root_from_xml_file(self, xml_path: str) -> XMLNode:
-        xml_path = os.path.abspath(xml_path)
-        assert os.path.exists(xml_path), (f"File '{xml_path}' does not exist.")
-        tree_xml = ET.parse(xml_path)
-        return tree_xml.getroot()
+        xml = MJCFParser._get_root_from_xml_file(self._xml_path)
+        return self._parse_xml(xml)
 
-    def _parse_xml(self, raw_xml: XMLNode) -> MJCFScene:
-        mj_scene = MJCFScene()
-        xml = self._merge_includes(raw_xml)
+  
+    @classmethod
+    def parse_from_string(cls, xml_string : str, root = "/", visual_groups={0, 1}) -> MJCFScene:
+        scene = cls(root)  
+        scene.visual_groups = set(visual_groups)
+
+        return scene._parse_xml(ET.fromstring(xml_string))
+
+    def _parse_xml(self, xml: XMLNode) -> MJCFScene:
+        self.scene = MJCFScene()
+
+        self._merge_includes(xml)
         self._load_compiler(xml)
         self._load_defaults(xml)
-        self._load_assets(xml, mj_scene)
-        self._load_worldbody(raw_xml, mj_scene)
-        mj_scene.xml_string = ET.tostring(raw_xml, encoding="unicode")
-        return mj_scene
+        self._load_asset_info(xml)
+
+        wbodys = list(xml.findall("./worldbody"))
+        for body in wbodys[1:]:
+            wbodys[0].extend(body)
+
+        self.scene.root = self._load_body(wbodys[0])
+        self.scene.xml_string = ET.tostring(xml, encoding="unicode")
+        self._load_assets()
+
+        return self.scene
 
     def _merge_includes(self, root_xml: XMLNode) -> XMLNode:
         for child in root_xml:
@@ -94,33 +110,38 @@ class MJCFParser:
             if not os.path.exists(sub_xml_path):
                 logger.warning(f"Warning: File '{sub_xml_path}' does not exist.")
                 continue
-            sub_xml_root = self.get_root_from_xml_file(sub_xml_path)
+            sub_xml_root = MJCFParser._get_root_from_xml_file(sub_xml_path)
             root_xml.extend(sub_xml_root)
         for child in root_xml:
             if child.tag == "include":
                 root_xml.remove(child)
-        return root_xml
+
+    @staticmethod
+    def _get_root_from_xml_file(xml_path: str) -> XMLNode:
+
+        assert os.path.exists(xml_path), f"File '{xml_path}' does not exist."
+
+        xml_path = os.path.abspath(xml_path)
+        tree_xml = ET.parse(xml_path)
+        return tree_xml.getroot()
+    
 
     def _load_compiler(self, xml: XMLNode) -> None:
-        for compiler in xml.findall("./compiler"):
-            self._use_degree = (
-                True if compiler.get("angle", "degree") == "degree" else False
-            )
-            self._eulerseq = compiler.get("eulerseq", "xyz")
-            self._assetdir = pjoin(self._path, compiler.get("assetdir", ""))
-            if "meshdir" in compiler.attrib:
-                self._meshdir = pjoin(self._path, compiler.get("meshdir", ""))
-            else:
-                self._meshdir = self._assetdir
-            if "texturedir" in compiler.attrib:
-                self._texturedir = pjoin(
-                    self._path, compiler.get("texturedir", "")
-                )
-            else:
+        compiler = xml.find("./compiler")
+
+        self._use_degree = compiler.get("angle", "degree") == "degree"
+        self._eulerseq = compiler.get("eulerseq", "xyz")
+        
+        self._assetdir = pjoin(self._path, compiler.get("assetdir", ""))
+
+        if "meshdir" in compiler.attrib:
+            self._meshdir = pjoin(self._path, compiler.get("meshdir"))
+        else:
+            self._meshdir = self._assetdir
+        if "texturedir" in compiler.attrib:
+            self._texturedir = pjoin(self._path, compiler.get("texturedir"))
+        else:
                 self._texturedir = self._assetdir
-        logger.info(f"assetdir: {self._assetdir}")
-        logger.info(f"meshdir: {self._meshdir}")
-        logger.info(f"texturedir: {self._texturedir}")
 
     def _load_defaults(self, root_xml: XMLNode) -> None:
         default_dict: Dict[str, MJCFDefault] = dict()
@@ -166,116 +187,131 @@ class MJCFParser:
         for child in xml:
             self._import_default(child, default_dict, parent_name)
 
-    def _load_assets(self, xml: XMLNode, mj_scene: MJCFScene) -> None:
-        for assets in xml.findall("./asset"):
-            for asset in assets:
-                if asset.tag == "mesh":
-                    asset_file = pjoin(self._meshdir, asset.attrib["file"])
-                    scale = str2list(asset.get("scale", "1 1 1"))
-                    mesh, bin_data = MeshLoader.from_file(
-                        asset_file,
-                        asset.get("name", asset.attrib["file"]),
-                        scale,
-                    )
-                    mj_scene.meshes.append(mesh)
-                    mj_scene.raw_data[mesh.dataHash] = bin_data
+    def _load_asset_info(self, xml: XMLNode) -> None:
+        
+        scene_assets = [asset for assets in xml.findall("./asset") for asset in assets]
 
-                elif asset.tag == "material":
-                    color = str2list(
-                        asset.get("rgba", "1 1 1 1")
-                    )
-                    emission = float(asset.get("emission", "0.0"))
-                    emissionColor = [emission * c for c in color]
-                    material = SimMaterial(
-                        id=asset.get("name") or asset.get("type"),
-                        color=color,
-                        emissionColor=emissionColor,
-                        specular=float(asset.get("specular", "0.5")),
-                        shininess=float(asset.get("shininess", "0.5")),
-                        reflectance=float(asset.get("reflectance", "0.0"))
-                    )
-                    material.texture = asset.get("texture", None)
-                    material.texsize = str2list(
-                        asset.get("texrepeat", "1 1")
-                    )
-                    mj_scene.materials.append(material)
-                elif asset.tag == "texture":
-                    name = asset.get("name") or asset.get("type")
-                    builtin = asset.get("builtin", "none")
-                    tint = str2list(asset.get("rgb1", "1 1 1"))
-                    if builtin != "none":
-                        texture, bin_data = TextureLoader.fromBuiltin(
-                            name, builtin, tint
-                        )
-                    else:
-                        asset_file = pjoin(
-                            self._texturedir, asset.attrib["file"]
-                        )
-                        byte_data = Path(asset_file).read_bytes()
-                        texture, bin_data = TextureLoader.from_bytes(
-                            name, byte_data, asset.get("type", "cube"), tint
-                        )
-                    mj_scene.textures.append(texture)
-                    mj_scene.raw_data[texture.dataHash] = bin_data
-                else:
-                    raise RuntimeError("Invalid asset", asset.tag)
+        self.mesh_info = { asset.get("name") : asset for asset in scene_assets if asset.tag == "mesh" and "name" in asset.attrib }
+        self.texture_info = { asset.get("name") : asset for asset in scene_assets if asset.tag == "texture" and "name" in asset.attrib }
+        self.material_info = { asset.get("name") : asset for asset in scene_assets if asset.tag == "material" and "name" in asset.attrib }
 
-    def _load_worldbody(self, xml: XMLNode, mj_scene: MJCFScene) -> None:
-        mj_scene.root = SimObject(name="root")
-        for worldbody in xml.findall("./worldbody"):
-            for geom in worldbody.findall("geom"):
-                visual = self._load_visual(geom)
-                if visual is not None:
-                    mj_scene.root.visuals.append(visual)
-            for body in worldbody.findall("./body"):
-                self._load_body(body, mj_scene.root)
+        self.requested_assets = dict()
 
-    def _load_visual(self, visual: XMLNode) -> SimVisual:
+    def _request_asset(self, type, asset_key) -> None:
+
+        if type + asset_key in self.requested_assets: return
+
+        if type == "mesh":
+
+            mesh = self.mesh_info[asset_key]
+
+            asset_file = pjoin(self._meshdir, mesh.attrib["file"])
+            scale = str2list(mesh.get("scale"))
+            name = mesh.get("name")
+
+            self.requested_assets[type + asset_key] = (AssetRequest.from_mesh(name, asset_file, scale))
+
+        elif type == "material":
+
+            material = self.material_info[asset_key]
+
+            name = material.get("name") 
+            color = str2list(material.get("rgba"), [1, 1, 1, 1])
+            emission = float(material.get("emission", "0.0"))
+            emissionColor = color * emission
+
+            mat = SimMaterial(
+                id=name,
+                color=color,
+                emissionColor=emissionColor,
+                specular=float(material.get("specular") or 0.5),
+                shininess=float(material.get("shininess") or 0.5),
+                reflectance=float(material.get("reflectance") or 0.0),
+                textureSize=str2list(material.get("texrepeat"), [1, 1]),
+                texture=material.get("texture")
+            )
+
+            self.scene.materials.append(mat)
+
+            # Load the required texture
+            if mat.texture is not None:
+                self._request_asset("texture", mat.texture)
+
+        elif type == "texture":    
+
+            texture = self.texture_info[asset_key]
+
+            name = texture.get("name")
+            type = texture.get("type")
+            builtin = texture.get("builtin", "none")
+            tint = texture.get("rgb1")
+            
+            if tint is not None:
+                tint = str2list(tint)
+
+            if texture.get("builtin", "none") != "none":    
+                self.requested_assets[type + asset_key] = (AssetRequest.from_texture(name, None, tint, builtin))
+            else:                
+                asset_file = pjoin(self._texturedir, texture.attrib["file"])
+                self.requested_assets[type + asset_key] = (AssetRequest.from_texture(name, asset_file, tint))
+
+    def _load_assets(self):
+
+        meshes, textures = AssetLoader.load_assets(self.requested_assets.values()) 
+        print(len(meshes), len(textures))
+        for mesh, data in meshes:
+            self.scene.meshes.append(mesh)
+            self.scene.raw_data[mesh.dataHash] = data
+
+        for texture, data in textures:
+            self.scene.textures.append(texture)
+            self.scene.raw_data[texture.dataHash] = data
+
+
+    def _load_visual(self, visual: XMLNode) -> Optional[SimVisual]:
+        
+        if int(visual.get("group", -1)) not in self.visual_groups:
+            return None
+
         visual_type = visual.get("type", "box")
-        pos = ros2unity(str2list(visual.get("pos", "0 0 0")))
-        rot = get_rot_from_xml(visual)
+        pos = ros2unity(str2list(visual.get("pos"), [0, 0, 0]))
+        rot = get_rot_from_xml(visual, self._use_degree)
         size = str2listabs(visual.get("size", "0.1 0.1 0.1"))
         scale = scale2unity(size, visual_type)
         trans = SimTransform(pos=pos, rot=rot, scale=scale)
+
+        mesh = visual.get("mesh")
+        material = visual.get("material")
+        
+        if mesh: self._request_asset("mesh", mesh)
+        if material: self._request_asset("material", material)
+
         return SimVisual(
             type=TypeMap[visual_type],
             trans=trans,
-            mesh=visual.get("mesh"),
-            material=visual.get("material"),
-            color=str2list(visual.get("rgba", "1 1 1 1")),
+            mesh=mesh,
+            material=material,
+            color=str2list(visual.get("rgba"),  [1, 1, 1, 1]),
         )
 
-    def _load_body(
-        self,
-        body: XMLNode,
-        parent: SimObject,
-    ) -> None:
+    def _load_body(self, body: XMLNode) -> Optional[None]:
+        
         name = body.get("name")
 
         if name in self.no_rendered_objects:
-            return
+            return None
 
         trans = SimTransform(
-            pos=ros2unity(
-                str2list(body.get("pos", "0 0 0"))
-            ),
-            rot=get_rot_from_xml(body)
+            pos=ros2unity(str2list(body.get("pos"), [0, 0, 0])),
+            rot=get_rot_from_xml(body, self._use_degree)
         )
 
-        visuals: List[SimVisual] = list()
-        for geom in body.findall("geom"):
-            # geom group 3 is for collision
-            if int(geom.get("group", "2")) == 3:
-                continue
-            visual = self._load_visual(geom)
-            if visual is not None:
-                visuals.append(visual)
-        new_gameobject = SimObject(
+        visuals  = [self._load_visual(geom) for geom in body.findall("geom")]
+        children = [self._load_body(child) for child in body.findall("body")]
+       
+        return SimObject(
             name=name,
             trans=trans,
-            visuals=visuals,
+            visuals =[visual for visual in visuals if visual is not None],
+            children=[child for child in children if child is not None],
         )
-        parent.children.append(new_gameobject)
-        for child in body.findall("body"):
-            self._load_body(child, new_gameobject)
-        return

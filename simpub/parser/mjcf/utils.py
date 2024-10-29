@@ -7,48 +7,49 @@ import re
 from simpub.simdata import VisualType
 
 RMap: Dict[str, Callable] = {
-    "quat": lambda x: quat2quat(x),
-    "axisangle": lambda x: axisangle2quat(x),
-    "euler": lambda x: euler2quat(x),
-    "xyaxes": lambda x: xyaxes2quat(x),
-    "zaxis": lambda x: zaxis2quat(x),
+    "quat": lambda x,y : quat2quat(x,y),
+    "axisangle": lambda x,y: axisangle2quat(x,y),
+    "euler": lambda x,y: euler2quat(x,y),
+    "xyaxes": lambda x,y: xyaxes2quat(x,y),
+    "zaxis": lambda x,y: zaxis2quat(x,y),
 }
 
 
-def get_rot_from_xml(obj_xml: XMLNode) -> List[float]:
+def get_rot_from_xml(obj_xml: XMLNode, degree=True) -> List[float]:
     result: List[float] = [0, 0, 0, 1]
     for key in RMap.keys():
         if key in obj_xml.attrib:
             result = RMap[key](
-                str2list(obj_xml.get(key))
+                str2list(obj_xml.get(key)),
+                degree
             )
             break
     return ros2unity_quat(result)
 
 
-def str2list(input_str: str) -> List[float]:
-    return [float(num) for num in re.split(r'[ ,\n]+', input_str)]
+def str2list(input_str: str, default = [1, 1, 1]) -> np.ndarray:
+    if not input_str: return np.array(default, dtype=np.float32)
+    return np.fromstring(input_str, dtype=np.float32, sep=" ")
 
-
-def str2listabs(input_str: str, sep: str = ' ') -> List[float]:
-    return [abs(float(num)) for num in input_str.split(sep)]
+def str2listabs(input_str: str, sep: str = ' ', default = [1, 1, 1]) -> np.ndarray:
+    if not input_str: return np.array(default, dtype=np.float32)
+    return np.abs(np.fromstring(input_str, dtype=np.float32, sep=sep))
 
 
 def rotation2unity(rotation: Rotation) -> List[float]:
-    return rotation.as_quat().tolist()
+    return rotation.as_quat()
 
 
-def quat2quat(quat: List[float]) -> List[float]:
+def quat2quat(quat: List[float], degree : bool) -> List[float]:
     quat = np.asarray(quat, dtype=np.float32)
     assert len(quat) == 4, "Quaternion must have four components."
     # Mujoco use wxyz format and Unity uses xyzw format
-    w, x, y, z = quat
-    quat = np.array([x, y, z, w], dtype=np.float64)
-    return rotation2unity(Rotation.from_quat(quat))
+    w, *xyz = quat
+    return rotation2unity(Rotation.from_quat([*xyz, w]))
 
 
 def axisangle2quat(
-    axisangle: List[float], use_degree=True
+    axisangle: List[float], degree : bool
 ) -> List[float]:
     assert len(axisangle) == 4, (
         "axisangle must contain four values (x, y, z, a)."
@@ -57,23 +58,19 @@ def axisangle2quat(
     axis = axisangle[:3]
     angle = axisangle[3]
     axis = axis / np.linalg.norm(axis)
-    if use_degree:
-        angle = np.deg2rad(angle)
-    rotation = Rotation.from_rotvec(angle * axis)
+    rotation = Rotation.from_rotvec(angle * axis, degrees=degree)
     return rotation2unity(rotation)
 
 
 def euler2quat(
-    euler: List[float], degree: str = True
+    euler: List[float], degree : bool
 ) -> List[float]:
     assert len(euler) == 3, "euler must contain three values (x, y, z)."
-    # Convert the Euler angles to radians if necessary
-    if not degree:
-        euler = np.rad2deg(euler).tolist()
-    return euler
+    rotation = Rotation.from_euler("xyz", euler, degrees=degree)
+    return rotation2unity(rotation)
 
 
-def xyaxes2quat(xyaxes: List[float]) -> List[float]:
+def xyaxes2quat(xyaxes: List[float], degree : bool) -> List[float]:
     assert len(xyaxes) == 6, (
         "xyaxes must contain six values (x1, y1, z1, x2, y2, z2)."
     )
@@ -85,10 +82,10 @@ def xyaxes2quat(xyaxes: List[float]) -> List[float]:
     return rotation2unity(rotation)
 
 
-def zaxis2quat(zaxis: List[float]) -> List[float]:
+def zaxis2quat(zaxis: List[float], degree : bool) -> List[float]:
     assert len(zaxis) == 3, "zaxis must contain three values (x, y, z)."
     # Create the rotation object from the z-axis
-    rotation = Rotation.from_rotvec(np.pi, np.array(zaxis))
+    rotation = Rotation.from_rotvec(zaxis, degrees=degree)
     return rotation2unity(rotation)
 
 
@@ -136,12 +133,10 @@ def cylinder2unity_scale(scale: List[float]) -> List[float]:
     #     return list(map(abs, [scale[0], scale[1], scale[0]]))
     # else:
     #     return list(map(abs, [scale[0] * 2, scale[1], scale[0] * 2]))
-    if len(scale) == 3:
-        return list(map(abs, [scale[0], scale[1], scale[0]]))
-    if len(scale) == 2:
-        return list(map(abs, [scale[0], scale[1], scale[0]]))
-    elif len(scale) == 1:
+    if len(scale) == 1:
         return list(map(abs, [scale[0] * 2, scale[0] * 2, scale[0] * 2]))
+    else:
+        return list(map(abs, [scale[0] * 2, scale[1], scale[0] * 2]))
 
 def capsule2unity_scale(scale: List[float]) -> List[float]:
     # assert len(scale) == 3, "Only support scale with three components."
