@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Tuple, List, Dict
+from typing import Any, Optional, Tuple, List, Dict
 from enum import Enum
 import numpy as np
 import random
@@ -103,6 +103,16 @@ class SimObject(SimData):
     children: List[SimObject] = field(default_factory=list)
 
 
+
+class SimSceneEncoder(json.JSONEncoder):
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, np.generic):
+            return obj.item()
+        return super().default(obj)
+
+
 class SimScene(SimData):
 
     def __init__(self) -> None:
@@ -121,4 +131,5 @@ class SimScene(SimData):
             "textures": [asdict(tex) for tex in self.textures],
             "materials": [asdict(mat) for mat in self.materials],
         }
-        return json.dumps(dict_data)
+
+        return json.dumps(dict_data, cls=SimSceneEncoder)
