@@ -258,7 +258,7 @@ class MJCFParser:
     def _load_assets(self):
 
         meshes, textures = AssetLoader.load_assets(self.requested_assets.values()) 
-        print(len(meshes), len(textures))
+        
         for mesh, data in meshes:
             self.scene.meshes.append(mesh)
             self.scene.raw_data[mesh.dataHash] = data
@@ -296,7 +296,9 @@ class MJCFParser:
 
     def _load_body(self, body: XMLNode) -> Optional[None]:
         
-        name = body.get("name")
+        name = body.get("name") if body.tag == "body" else "scene" 
+
+        assert name is not None
 
         if name in self.no_rendered_objects:
             return None
