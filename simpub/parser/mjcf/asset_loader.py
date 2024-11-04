@@ -110,7 +110,7 @@ class TextureLoader:
         else:  # FLAT
             img = np.full((*cls.DEFAULT_TEXTURE_SIZE, 4), 255, dtype=np.uint8)
 
-        return cls._create_texture(name, img, tint)
+        return cls._create_texture(name, img, tint=tint)
 
     @classmethod
     def from_file(

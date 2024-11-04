@@ -112,7 +112,7 @@ def scale2unity(scale: List[float], visual_type: str) -> List[float]:
     if visual_type in ScaleMap:
         return ScaleMap[visual_type](scale)
     else:
-        return [1, 1, 1]
+        return [scale[1], scale[2], scale[0]]
 
 
 def plane2unity_scale(scale: List[float]) -> List[float]:
@@ -148,10 +148,9 @@ def capsule2unity_scale(scale: List[float]) -> List[float]:
 
 
 ScaleMap: Dict[str, Callable] = {
-    "plane": lambda x: plane2unity_scale(x),
-    "box": lambda x: box2unity_scale(x),
-    "sphere": lambda x: sphere2unity_scale(x),
-    "cylinder": lambda x: cylinder2unity_scale(x),
-    "capsule": lambda x: capsule2unity_scale(x),
-    "ellipsoid": lambda x: capsule2unity_scale(x),
+    VisualType.PLANE: lambda x: plane2unity_scale(x),
+    VisualType.CUBE: lambda x: box2unity_scale(x),
+    VisualType.SPHERE: lambda x: sphere2unity_scale(x),
+    VisualType.CYLINDER: lambda x: cylinder2unity_scale(x),
+    VisualType.CAPSULE: lambda x: capsule2unity_scale(x),
 }

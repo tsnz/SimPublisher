@@ -245,15 +245,15 @@ class MJCFParser:
             type = texture.get("type")
             builtin = texture.get("builtin", "none")
             tint = texture.get("rgb1")
-            
+
             if tint is not None:
                 tint = str2list(tint)
 
             if texture.get("builtin", "none") != "none":    
-                self.requested_assets[type + asset_key] = (AssetRequest.from_texture(name, None, tint, builtin))
+                self.requested_assets[type + asset_key] = AssetRequest.from_texture(name, None, type, tint, builtin)
             else:                
                 asset_file = pjoin(self._texturedir, texture.attrib["file"])
-                self.requested_assets[type + asset_key] = (AssetRequest.from_texture(name, asset_file, tint))
+                self.requested_assets[type + asset_key] = AssetRequest.from_texture(name, asset_file, type, tint)
 
     def _load_assets(self):
 
@@ -270,13 +270,13 @@ class MJCFParser:
 
     def _load_visual(self, visual: XMLNode) -> Optional[SimVisual]:
         
-        if int(visual.get("group", -1)) not in self.visual_groups:
+        if int(visual.get("group", 0)) not in self.visual_groups:
             return None
 
-        visual_type = visual.get("type", "box")
+        visual_type = TypeMap[visual.get("type", "box")]
         pos = ros2unity(str2list(visual.get("pos"), [0, 0, 0]))
         rot = get_rot_from_xml(visual, self._use_degree)
-        size = str2listabs(visual.get("size", "0.1 0.1 0.1"))
+        size = str2listabs(visual.get("size"))
         scale = scale2unity(size, visual_type)
         trans = SimTransform(pos=pos, rot=rot, scale=scale)
 
@@ -287,7 +287,7 @@ class MJCFParser:
         if material: self._request_asset("material", material)
 
         return SimVisual(
-            type=TypeMap[visual_type],
+            type=visual_type,
             trans=trans,
             mesh=mesh,
             material=material,

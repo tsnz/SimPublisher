@@ -9,7 +9,7 @@ from simpub.core.simpub_server import SimPublisher
 from simpub.parser.mjcf import MJCFParser
 from simpub.simdata import SimObject
 import time
-
+from simpub.parser.mujoco import MjModelParser
 
 class RobocasaPublisher(SimPublisher):
 
@@ -23,7 +23,12 @@ class RobocasaPublisher(SimPublisher):
     ) -> None:
         
         self.env = env
+
+        with open("scene.xml", "w") as fp:
+            fp.write(env.sim.model.get_xml())
+
         sim_scene = MJCFParser.parse_from_string(env.sim.model.get_xml(), visual_groups={1})
+        # sim_scene = MjModelParser(env.sim.model._model).parse()
         self.tracked_obj = list()
         
         super().__init__(
