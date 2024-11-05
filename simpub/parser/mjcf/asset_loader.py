@@ -128,18 +128,13 @@ class TextureLoader:
         if img is None:
             raise IOError("Failed to decode image data")
 
-
         # Convert BGR to RGBA if necessary
         if len(img.shape) == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA)
-        elif img.shape[-1] == 3:  # BGR
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
-        elif img.shape[-1] == 4:  # BGRA
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGBA)
-        else:
-            raise IOError(f"Unsupported number of channels: {img.shape[-1]}")
-
-
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        elif img.shape[-1] == 4:  # RGBA
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB)
+        
+        assert img.shape[-1] == 3
 
         return cls._create_texture(name, img, texture_type, tint)
     
@@ -160,7 +155,7 @@ class TextureLoader:
         pattern = pattern[:height, :width]
         
         # Convert to RGBA
-        rgba = cv2.cvtColor(pattern, cv2.COLOR_GRAY2RGBA)
+        rgba = cv2.cvtColor(pattern, cv2.COLOR_GRAY2RGB)
         return rgba
 
     @staticmethod
@@ -169,18 +164,18 @@ class TextureLoader:
         width, height = size
         gradient = np.linspace(0, 255, width, dtype=np.uint8)
         gradient = np.tile(gradient, (height, 1))
-        return cv2.cvtColor(gradient, cv2.COLOR_GRAY2RGBA)
+        return cv2.cvtColor(gradient, cv2.COLOR_GRAY2RGB)
     
     @staticmethod
     def _apply_tint(img: np.ndarray, tint: np.ndarray) -> np.ndarray:
-        assert img.shape[-1] == 4, "Image must be RGBA"
+        assert img.shape[-1] == 3, "Image must be RGB"
         assert len(tint) == 3, "Tint must be RGB"
         
         # Ensure tint is float32 and properly shaped for broadcasting
         tint = tint.reshape(1, 1, 3)
         
         # Simple multiplication approach - fast and stable
-        img[..., :3] = (img[..., :3] * tint).astype(np.uint8)
+        img = (img * tint).astype(np.uint8)
 
     @staticmethod
     def _create_texture(
@@ -190,12 +185,13 @@ class TextureLoader:
         tint : np.ndarray = None
     ) -> Tuple[SimTexture, bytes]:
 
+        assert img.shape[-1] == 3 and img.dtype == np.uint8
         
         if tint is not None and tint.mean() != 1:
             TextureLoader._apply_tint(img, tint)
-
+        print(img.shape, img.dtype)
         height, width = img.shape[:2]
-        tex_data = io.BytesIO(img).getvalue()
+        tex_data = img.tobytes()
         texture_hash = hash_bytes(tex_data)
 
         texture = SimTexture(
