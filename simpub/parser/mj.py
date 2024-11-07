@@ -10,6 +10,8 @@ from ..simdata import SimMaterial, SimTexture
 from ..core.log import logger
 from .mjcf.utils import scale2unity, TypeMap
 
+import cv2 
+
 MJModelGeomTypeMap = {
     mujoco.mjtGeom.mjGEOM_SPHERE: "sphere",
     mujoco.mjtGeom.mjGEOM_CAPSULE: "capsule",
@@ -83,13 +85,7 @@ class MjModelParser:
             )
             # remove the geom if it does not participate in rendering
             # TODO: check if the internal visualization setting is geom_group
-            if mj_model.geom_group[geom_id] == 0:
-                logger.info(
-                    (
-                        f"Geom '{geom_name}'(id {geom_id}) does not"
-                        f"participate in rendering and can be removed."
-                    )
-                )
+            if mj_model.geom_group[geom_id] == 0: 
                 continue
 
             geom_type = mj_model.geom_type[geom_id]
@@ -263,20 +259,19 @@ class MjModelParser:
             if tex_name is None:
                 continue
 
-            # tex_type = mj_model.tex_type[tex_id]
-            tex_width = mj_model.tex_width[tex_id]
-            tex_height = mj_model.tex_height[tex_id]
             # get the texture data
-            tex_height = mj_model.tex_height[tex_id]
-            tex_width = mj_model.tex_width[tex_id]
+            tex_height = mj_model.tex_height[tex_id].item()
+            tex_width = mj_model.tex_width[tex_id].item()
+
             # only we only supported texture channel number is 3
             if hasattr(mj_model, "tex_nchannel"):
-                tex_nchannel = mj_model.tex_nchannel[tex_id]
+                tex_nchannel = mj_model.tex_nchannel[tex_id].item()
             else:
                 tex_nchannel = 3
             assert tex_nchannel == 3, "Only support texture with 3 channels."
             start_tex = mj_model.tex_adr[tex_id]
             num_tex_data = tex_height * tex_width * tex_nchannel
+
             if hasattr(mj_model, "tex_data"):
                 tex_data = mj_model.tex_data[
                     start_tex:start_tex + num_tex_data
@@ -286,12 +281,17 @@ class MjModelParser:
                     start_tex:start_tex + num_tex_data
                 ]
             
-            bin_data = tex_data.tobytes()
+
+            width=tex_width // 4
+            height=tex_height // 4
+            
+            tex_data = cv2.resize(tex_data.reshape(tex_width, tex_height, 3), (width, height), interpolation=cv2.INTER_LINEAR)
+            bin_data = tex_data.astype(np.uint8).tobytes()
             texture_hash = md5(bin_data).hexdigest()
             texture = SimTexture(
                 name=tex_name,
-                width=int(tex_width),
-                height=int(tex_height),
+                width=width,
+                height=height,
                 # Only support 2d texture
                 textureType="2d",
                 dataHash=texture_hash
