@@ -89,12 +89,17 @@ class Publisher(NetComponent):
     def publish_string(self, string: str):
         self.manager.submit_task(self.send_msg_async, f"{self.topic}:{string}")
 
+    def publish_binary(self, data: bytes):
+        self.manager.submit_task(self.send_bindary_msg_async, b"".join([self.topic_byte, b":", data]))
+
     def on_shutdown(self):
         super().on_shutdown()
 
     async def send_msg_async(self, msg: str):
         await self.socket.send_string(msg)
 
+    async def send_bindary_msg_async(self, msg: bytes):
+        await self.socket.send(msg)
 
 class Streamer(Publisher):
     def __init__(
@@ -146,6 +151,46 @@ class ByteStreamer(Streamer):
     def generate_byte_msg(self) -> bytes:
         return self.update_func()
 
+class ManualStreamer(Publisher):
+    def __init__(
+        self,
+        topic: str,
+        update_func: Callable[[], Dict],        
+    ):
+        super().__init__(topic)                
+        self.update_func = update_func        
+        self.topic_byte = self.topic.encode("utf-8")
+
+    def generate_byte_msg(self) -> bytes:
+        return json.dumps(
+            {
+                "updateData": self.update_func(),
+                "time": time.monotonic(),
+            }
+        ).encode("utf-8")
+        
+    def send_update(self):
+        try:
+            self.publish_binary(self.generate_byte_msg())
+        except Exception as e:
+            logger.error(f"Error when streaming {self.topic}: {e}")
+
+class ManualByteStreamer(ManualStreamer):
+    def __init__(
+        self,
+        topic: str,
+        update_func: Callable[[], bytes],
+    ):
+        super().__init__(topic, update_func)
+
+    def generate_byte_msg(self) -> bytes:
+        return self.update_func()
+    
+    def send_update(self):
+        try:
+            self.publish_binary(self.generate_byte_msg())
+        except Exception as e:
+            logger.error(f"Error when streaming {self.topic}: {e}")
 
 class Service(NetComponent):
     def __init__(

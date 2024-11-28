@@ -276,9 +276,9 @@ def main():
     # create state machine
     pick_sm = PickAndLiftSm(env_cfg.sim.dt * env_cfg.decimation, env.unwrapped.num_envs, env.unwrapped.device)
     
-    if env.sim is not None and env.sim.stage is not None:
+    if env.unwrapped.sim is not None and env.unwrapped.sim.stage is not None:
         print("parsing usd stage...")
-        publisher = IsaacSimPublisher(host="192.168.170.22", stage=env.sim.stage)
+        publisher = IsaacSimPublisher(host="192.168.170.22", stage=env.unwrapped.sim.stage)
         # publisher = IsaacSimPublisher(host="127.0.0.1", stage=env.sim.stage)
 
     while simulation_app.is_running():

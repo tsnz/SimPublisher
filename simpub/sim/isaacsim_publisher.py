@@ -7,7 +7,7 @@ import numpy as np
 import trimesh
 
 from simpub.core.simpub_server import SimPublisher
-from simpub.core.net_manager import ByteStreamer
+from simpub.core.net_manager import ManualByteStreamer, ManualStreamer
 from simpub.simdata import (
     SimScene,
     SimObject,
@@ -22,10 +22,19 @@ import omni
 import omni.usd
 from pxr import Usd, UsdGeom, Gf, UsdUtils
 
+from omni.isaac.core import SimulationContext, World
+
 from usdrt import Usd as RtUsd
 from usdrt import UsdGeom as RtGeom
 from usdrt import Rt
 
+class SimPubManualByteStreamer(ManualByteStreamer):
+    def send_update(self, step_size):
+        return super().send_update()
+
+class SimPubManualStreamer(ManualStreamer):
+    def send_update(self, step_size):
+        return super().send_update()
 
 #! todo: separate the parser and the publisher...
 class IsaacSimPublisher(SimPublisher):
@@ -39,7 +48,12 @@ class IsaacSimPublisher(SimPublisher):
         super().__init__(self.sim_scene, host)
 
         # add deformable update streamer
-        self.deform_update_streamer = ByteStreamer("DeformUpdate", self.get_deform_update)
+        #self.deform_update_streamer = ByteStreamer("DeformUpdate", self.get_deform_update)
+        self.deform_update_publisher = SimPubManualByteStreamer("DeformUpdate", self.get_deform_update)
+        self.scene_update_publisher = SimPubManualStreamer("SceneUpdate", self.get_update)        
+        sim_context = World().instance()   
+        sim_context.add_physics_callback(self.deform_update_publisher.topic, self.deform_update_publisher.send_update)
+        sim_context.add_physics_callback(self.scene_update_publisher.topic, self.scene_update_publisher.send_update)
 
     def parse_scene(self, stage: Usd.Stage) -> SimScene:
         print("parsing stage:", stage)

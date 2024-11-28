@@ -56,7 +56,7 @@ class SimPublisher(ServerBase):
         )
 
     def initialize(self):
-        self.scene_update_streamer = Streamer("SceneUpdate", self.get_update)
+        # self.scene_update_streamer = Streamer("SceneUpdate", self.get_update)
         # self.scene_service = BytesService("Scene", self._on_scene_request)
         self.asset_service = BytesService("Asset", self._on_asset_request)
 
