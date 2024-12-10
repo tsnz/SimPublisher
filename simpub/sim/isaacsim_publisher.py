@@ -293,6 +293,7 @@ class IsaacSimPublisher(SimPublisher):
             cube_size = cube_prim.GetSizeAttr().Get()
 
             sim_cube = SimVisual(
+                name=prim_path,
                 type=VisualType.CUBE,
                 trans=SimTransform(
                     scale=[
@@ -301,7 +302,7 @@ class IsaacSimPublisher(SimPublisher):
                         cube_size * cube_scale[0],
                     ]
                 ),
-                color=[1.0, 1.0, 1.0, 1.0],
+                material=SimMaterial(color=[1.0, 1.0, 1.0, 1.0]),
             )
 
             sim_obj.visuals.append(sim_cube)
