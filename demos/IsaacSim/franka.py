@@ -6,7 +6,8 @@ simulation_app = SimulationApp({"headless": False}) # we can also run as headles
 # This extension has franka related tasks and controllers as well
 from omni.isaac.core import World
 from omni.isaac.franka import Franka
-from omni.isaac.core.objects import DynamicCuboid, VisualSphere
+from omni.isaac.core.objects import DynamicCuboid, VisualCuboid
+from omni.isaac.core.prims import XFormPrim
 import numpy as np
 
 from omni.isaac.lab.devices import Se3Gamepad
@@ -19,6 +20,7 @@ from omni.isaac.core.utils.stage import add_reference_to_stage
 from pxr import Gf
 
 from simpub.sim.isaacsim_publisher import IsaacSimPublisher
+from simpub.xr_device.meta_quest3 import MetaQuest3
 
 world = World(device="cuda", set_defaults=False)
 physContext = world.get_physics_context()
@@ -40,12 +42,19 @@ fancy_cube = world.scene.add(
     )
 )
 
+world.scene.add(
+    XFormPrim(
+        prim_path="/World/targetxform",
+        orientation=np.array([ 0, 0, 1, 0 ]),
+    )
+)
+
 target = world.scene.add(
-    VisualSphere(
-        prim_path="/World/target",
+    VisualCuboid(
+        prim_path="/World/targetxform/target",
         name="target",
         position=np.array([0.5, 0, 0.5]),
-        radius=0.015,
+        scale=np.array([0.03, 0.03, 0.03]),
         color=np.array([1.0, 0, 0]),
     )
 )
@@ -61,37 +70,36 @@ teddy.GetChild('geometry').GetChild('bear').GetAttribute('physxDeformable:simula
 sensitivity = 0.004
 input_controller = Se3Gamepad(dead_zone=0.2)
 
+
 world.reset()
 
 articulation = Articulation(franka.prim_path)
 articulation.initialize()
 rmp_controller = RMPFlowController("FC", articulation)
 
-t_pose = np.asarray([0, 1, 0, 0], dtype=np.float32)
-
 publisher = IsaacSimPublisher(host="192.168.170.22", stage=world.stage)
+meta_quest3 = MetaQuest3("ALRMetaQuest3")
 
 while simulation_app.is_running():
     world.step(render=True)
+
     input = input_controller.advance()
     input[0][:] = input[0][:] * sensitivity
     input[0][0] = -input[0][0]
-    
+
+    input_data = meta_quest3.get_input_data()
+
     if world.is_playing():
-        
-        cube_position, _ = fancy_cube.get_world_pose()                
-        
-        current_gripper_position = franka.gripper.get_joint_positions()                
+        current_gripper_position = franka.gripper.get_joint_positions()
         if (not input[1]):
             franka.gripper.set_joint_positions(current_gripper_position + (franka.gripper.joint_opened_positions - current_gripper_position) * 0.03)
         else:
             franka.gripper.set_joint_positions(current_gripper_position + (franka.gripper.joint_closed_positions - current_gripper_position) * 0.03)
-           
-        target_position, _ = target.get_world_pose()
-        _, target_rotation = target.get_local_pose()
+
+        target_position, target_rotation = target.get_world_pose()
         target_position = target_position + input[0][[-0, 1, 2]]
-        target.set_world_pose(target_position)        
-        action = rmp_controller.forward(target_position, t_pose)
+        target.set_world_pose(target_position)
+        action = rmp_controller.forward(target_position, target_rotation)
         articulation.apply_action(action)
-    
+
 simulation_app.close()
