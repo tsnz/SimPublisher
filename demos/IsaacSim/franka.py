@@ -92,57 +92,52 @@ teddy.GetAttribute("xformOp:rotateXYZ").Set(Gf.Vec3f(0, 0, -90))
 #     "physxDeformable:simulationHexahedralResolution"
 # ).Set(5)
 
-sensitivity = 0.004
-input_controller = Se3Gamepad(dead_zone=0.2)
-
+bin = add_reference_to_stage(
+    usd_path=asset_root_path + "/Isaac/Props/KLT_Bin/small_KLT.usd",
+    prim_path="/World/bin",
+)
+bin.GetAttribute("xformOp:translate").Set(Gf.Vec3f(0.5, -0.5, 0.075))
 
 world.reset()
-
 articulation = Articulation(franka.prim_path)
 articulation.initialize()
 rmp_controller = RMPFlowController("FC", articulation)
 
-publisher = IsaacSimPublisher(host="192.168.170.22", stage=world.stage)
-meta_quest3 = MetaQuest3("UnityClient")
+publisher = IsaacSimPublisher(host="192.168.0.208", stage=world.stage)
+meta_quest3 = MetaQuest3("ALRMetaQuest3")
 
 while simulation_app.is_running():
     world.step(render=True)
 
-    input = input_controller.advance()
-    input[0][:] = input[0][:] * sensitivity
-    input[0][0] = -input[0][0]
-
-    input_data = meta_quest3.get_input_data()
-
-    if input_data is not None:    
-        target.set_world_pose(input_data["right"]["pos"])
-        # rotate controller by 180 deg on z axis so that x axis faces robot
-        # this prevents a 180 deg turn of the EEF
-        # this also means y and z axis have to be inverted to correctly rotate the target cube
-        rot_180_deg_z = Gf.Quatf(0, Gf.Vec3f(0, 0, 1))
-        controller_rot = Gf.Quatf(input_data["right"]["rot"][0], input_data["right"]["rot"][1:4])
-        target_rot = controller_rot  * rot_180_deg_z        
-        target_rot_i = target_rot.GetImaginary()
-        target.set_local_pose(None, [target_rot.GetReal(), target_rot_i[0], -target_rot_i[1], -target_rot_i[2]])
-
     if world.is_playing():
-        current_gripper_position = franka.gripper.get_joint_positions()
-        if not input[1]:
-            franka.gripper.set_joint_positions(
-                current_gripper_position
-                + (franka.gripper.joint_opened_positions - current_gripper_position)
-                * 0.03
-            )
-        else:
-            franka.gripper.set_joint_positions(
-                current_gripper_position
-                + (franka.gripper.joint_closed_positions - current_gripper_position)
-                * 0.03
-            )
+        
+        input_data = meta_quest3.get_input_data()
+        if input_data is not None and input_data["right"]["index_trigger"]:
+            target.set_world_pose(input_data["right"]["pos"])
+            # rotate controller by 180 deg on z axis so that x axis faces robot
+            # this prevents a 180 deg turn of the EEF
+            # this also means y and z axis have to be inverted to correctly rotate the target cube
+            rot_180_deg_z = Gf.Quatf(0, Gf.Vec3f(0, 0, 1))
+            controller_rot = Gf.Quatf(input_data["right"]["rot"][0], input_data["right"]["rot"][1:4])
+            target_rot = controller_rot  * rot_180_deg_z        
+            target_rot_i = target_rot.GetImaginary()
+            target.set_local_pose(None, [target_rot.GetReal(), target_rot_i[0], -target_rot_i[1], -target_rot_i[2]])                        
+                    
+            current_gripper_position = franka.gripper.get_joint_positions()
+            if not input_data["B"]:
+                franka.gripper.set_joint_positions(
+                    current_gripper_position
+                    + (franka.gripper.joint_opened_positions - current_gripper_position)
+                    * 0.03
+                )
+            else:
+                franka.gripper.set_joint_positions(
+                    current_gripper_position
+                    + (franka.gripper.joint_closed_positions - current_gripper_position)
+                    * 0.03
+                )
 
         target_position, target_rotation = target.get_world_pose()
-        target_position = target_position + input[0][[-0, 1, 2]]
-        target.set_world_pose(target_position)
         action = rmp_controller.forward(target_position, target_rotation)
         articulation.apply_action(action)
 
