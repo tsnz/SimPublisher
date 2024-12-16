@@ -75,6 +75,15 @@ class MetaQuest3(XRDevice):
                 [callback() for callback in callbacks]
         left_hand = self.input_data["left"]
         last_left_hand = self.last_input_data["left"]
+        
+        left_hand["pos"][0] = -left_hand["pos"][0]
+        left_hand["pos"][1] = -left_hand["pos"][1]
+        tmp = left_hand["rot"].copy()
+        left_hand["rot"][0] = tmp[3]
+        left_hand["rot"][1] = -tmp[0]
+        left_hand["rot"][2] = -tmp[1]
+        left_hand["rot"][3] = tmp[2]
+        
         for trigger, callbacks in self.left_trigger_press_event.items():
             if left_hand[trigger] and not last_left_hand[trigger]:
                 [callback() for callback in callbacks]
@@ -83,6 +92,15 @@ class MetaQuest3(XRDevice):
                 [callback() for callback in callbacks]
         right_hand = self.input_data["right"]
         last_right_hand = self.last_input_data["right"]
+        
+        right_hand["pos"][0] = -right_hand["pos"][0]
+        right_hand["pos"][1] = -right_hand["pos"][1]
+        tmp = right_hand["rot"].copy()
+        right_hand["rot"][0] = tmp[3]
+        right_hand["rot"][1] = -tmp[0]
+        right_hand["rot"][2] = -tmp[1]
+        right_hand["rot"][3] = tmp[2]
+        
         for trigger, callbacks in self.right_trigger_press_event.items():
             if right_hand[trigger] and not last_right_hand[trigger]:
                 [callback() for callback in callbacks]
