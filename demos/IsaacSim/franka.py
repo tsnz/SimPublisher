@@ -34,7 +34,7 @@ world.scene.stage.GetPrimAtPath(
 ).GetAttribute("xformOp:translate").Set(Gf.Vec3d(0, 0, 0))
 world.scene.stage.GetPrimAtPath(
     "/World/defaultGroundPlane/Environment/Geometry"
-).GetAttribute("xformOp:scale").Set(Gf.Vec3d(3, 3, 3))
+).GetAttribute("xformOp:scale").Set(Gf.Vec3d(2, 2, 1))
 
 # Robot specific class that provides extra functionalities
 # such as having gripper and end_effector instances.
@@ -82,15 +82,18 @@ teddy = add_reference_to_stage(
 )
 teddy.GetAttribute("xformOp:rotateXYZ").Set(Gf.Vec3f(0, 0, -90))
 # teddy.GetAttribute("xformOp:translate").Set(Gf.Vec3f(0.5, 0, 0.1))
-# teddy.GetChild("geometry").GetChild("bear").GetProperty(
-#     "physxDeformable:enableCCD"
-# ).Set(False)
+teddy.GetChild("geometry").GetChild("bear").GetProperty(
+    "physxDeformable:enableCCD"
+).Set(False)
 # teddy.GetChild("geometry").GetChild("bear").GetAttribute(
 #     "physxDeformable:collisionSimplificationRemeshingResolution"
 # ).Set(5)
 # teddy.GetChild("geometry").GetChild("bear").GetAttribute(
 #     "physxDeformable:simulationHexahedralResolution"
 # ).Set(5)
+teddy.GetChild("geometry").GetChild("bear").GetAttribute(
+    "physxDeformable:solverPositionIterationCount"
+).Set(16)
 
 bin = add_reference_to_stage(
     usd_path=asset_root_path + "/Isaac/Props/KLT_Bin/small_KLT.usd",
