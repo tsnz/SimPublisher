@@ -22,7 +22,7 @@ import omni
 import omni.usd
 from pxr import Usd, UsdGeom, Gf, UsdUtils
 
-from omni.isaac.core import SimulationContext, World
+from isaacsim.core.api import SimulationContext, World
 
 from usdrt import Usd as RtUsd
 from usdrt import UsdGeom as RtGeom
