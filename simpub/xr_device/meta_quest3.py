@@ -73,34 +73,54 @@ class MetaQuest3(XRDevice):
         for button, callbacks in self.button_press_event.items():
             if self.input_data[button] and not self.last_input_data[button]:
                 [callback() for callback in callbacks]
+
+        # hand controller info with order in unity coordinates (left handed):
+        # pos: z, -x, y & rot: -z, x, -y, w
         left_hand = self.input_data["left"]
         last_left_hand = self.last_input_data["left"]
-        
-        left_hand["pos"][0] = -left_hand["pos"][0]
-        left_hand["pos"][1] = -left_hand["pos"][1]
-        tmp = left_hand["rot"].copy()
-        left_hand["rot"][0] = tmp[3]
-        left_hand["rot"][1] = -tmp[0]
-        left_hand["rot"][2] = -tmp[1]
-        left_hand["rot"][3] = tmp[2]
-        
+        # to isaac sim pos
+        # x := -z, y:= x, z:= y
+        left_hand["pos"] = [
+            -left_hand["pos"][0],
+            -left_hand["pos"][1],
+            left_hand["pos"][2],
+        ]
+        # to isaac sim rot:
+        # w:= w, x:= z, y:= -x, z:= -y
+        left_hand["rot"] = [
+            left_hand["rot"][3],
+            -left_hand["rot"][0],
+            -left_hand["rot"][1],
+            left_hand["rot"][2],
+        ]
+
         for trigger, callbacks in self.left_trigger_press_event.items():
             if left_hand[trigger] and not last_left_hand[trigger]:
                 [callback() for callback in callbacks]
         for trigger, callbacks in self.left_trigger_release_event.items():
             if not left_hand[trigger] and last_left_hand[trigger]:
                 [callback() for callback in callbacks]
+
+        # hand controller info with order in unity coordinates (left handed):
+        # pos: z, -x, y & rot: -z, x, -y, w
         right_hand = self.input_data["right"]
         last_right_hand = self.last_input_data["right"]
-        
-        right_hand["pos"][0] = -right_hand["pos"][0]
-        right_hand["pos"][1] = -right_hand["pos"][1]
-        tmp = right_hand["rot"].copy()
-        right_hand["rot"][0] = tmp[3]
-        right_hand["rot"][1] = -tmp[0]
-        right_hand["rot"][2] = -tmp[1]
-        right_hand["rot"][3] = tmp[2]
-        
+        # to isaac sim pos:
+        # x := -z, y:= x, z:= y
+        right_hand["pos"] = [
+            -right_hand["pos"][0],
+            -right_hand["pos"][1],
+            right_hand["pos"][2],
+        ]
+        # to isaac sim rot:
+        # w:= w, x:= z, y:= -x, z:= -y
+        right_hand["rot"] = [
+            right_hand["rot"][3],
+            -right_hand["rot"][0],
+            -right_hand["rot"][1],
+            right_hand["rot"][2],
+        ]
+
         for trigger, callbacks in self.right_trigger_press_event.items():
             if right_hand[trigger] and not last_right_hand[trigger]:
                 [callback() for callback in callbacks]
@@ -112,9 +132,7 @@ class MetaQuest3(XRDevice):
         # button should be one of A, B, X, Y
         self.button_press_event[button].append(callback)
 
-    def register_trigger_press_event(
-        self, trigger: str, hand: str, callback: Callable
-    ):
+    def register_trigger_press_event(self, trigger: str, hand: str, callback: Callable):
         # hand should be one of left or right
         # trigger should be one of hand_trigger or index_trigger
         if hand == "left":
@@ -144,7 +162,9 @@ class MetaQuest3(XRDevice):
         if not self.on_vibration[hand]:
             self.on_vibration[hand] = True
             self.manager.submit_task(
-                self.start_vibration_async, hand, duration,
+                self.start_vibration_async,
+                hand,
+                duration,
             )
 
     async def start_vibration_async(self, hand: str = "right", duration=0.5):
